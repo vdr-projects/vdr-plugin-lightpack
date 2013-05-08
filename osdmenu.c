@@ -8,7 +8,7 @@ myOsdMenu::myOsdMenu() : cOsdMenu("Lightpack", 32)
     Smooth = LastSmooth = LightpackSmooth;
     ProfileIndex = LastProfileIndex = LightpackProfileIndex;
 
-    if( libLightpack.Connect() ) {
+    if( libLightpack.isConnected() ) {
         Add(new cOsdItem(tr("Appearance"), osUnknown, false));
         Add(new cMenuEditIntItem(tr("Gamma"), &Gamma, 0, 100));
         Add(new cMenuEditIntItem(tr("Brightness"), &Brightness));

@@ -322,6 +322,10 @@ void cPluginLightpack::LoadConfig(void)
   libLightpack.Server = GetConfigValue(ConfigFile, "server");
   libLightpack.Port = GetConfigValue(ConfigFile, "port");
   libLightpack.ApiKey = GetConfigValue(ConfigFile, "apikey");
+  
+    syslog(LOG_ERR, "lightpack server=%s port=%s apikey=%s", *libLightpack.Server, *libLightpack.Port, *libLightpack.ApiKey);
+    if( !libLightpack.Connect() )
+        syslog(LOG_ERR, "lightpack can't connect to server! Config right? Prismatik software running?");
 }
 
 char * cPluginLightpack::GetConfigValue(const char *Filename, const char *Setting)
@@ -368,8 +372,6 @@ cLibLightpack::~cLibLightpack()
 
 const char* cLibLightpack::GetLastError(void)
 {
-    //syslog(LOG_ERR, "lightpack LastError: %s", *LastError);
-    
     Error = LastError;
     LastError = "";
     return *Error;
@@ -423,8 +425,8 @@ bool cLibLightpack::SetGamma(double Value)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
 
     char *lightret = lightpack_setgamma(Value);
@@ -450,8 +452,8 @@ bool cLibLightpack::SetBrightness(int Value)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
 
     char *lightret = lightpack_setbrightness(Value);
@@ -478,8 +480,8 @@ bool cLibLightpack::SetSmooth(int Value)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
     char *lightret = lightpack_setsmooth(Value);
     if( lightret != NULL ) {
@@ -517,8 +519,8 @@ bool cLibLightpack::SetStatus(bool Value)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
 
     char *lightret = NULL;
@@ -548,8 +550,8 @@ bool cLibLightpack::SetMode(int Value)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
 
     char *lightret = NULL;
@@ -583,8 +585,8 @@ bool cLibLightpack::SetProfile(cString Profile)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
 
     char *lightret = NULL;
@@ -610,8 +612,8 @@ int cLibLightpack::GetStatus(void)
         return 0;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return 0;
+        LastError = "not connected";
+        return false;
     }
     int ret = 0;
     char *status = lightpack_getstatus();
@@ -636,8 +638,8 @@ int cLibLightpack::GetMode(void)
         return 0;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return 0;
+        LastError = "not connected";
+        return false;
     }
     int ret = 0;
     char *mode = lightpack_getmode();
@@ -662,8 +664,8 @@ bool cLibLightpack::GetFps(double &Fps)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
     char *fps = lightpack_getmode();
     if( fps != NULL ) {
@@ -683,8 +685,8 @@ bool cLibLightpack::GetProfile(cString &Profile)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
     char *profile = lightpack_getprofile();
     if( profile != NULL ) {
@@ -704,8 +706,8 @@ bool cLibLightpack::GetProfiles(cStringList &Profiles)
         return false;
     }
     if( !is_connected ) {
-        if( !Connect() )
-            return false;
+        LastError = "not connected";
+        return false;
     }
     char *profiles = lightpack_getprofiles();
     if( profiles != NULL ) {
