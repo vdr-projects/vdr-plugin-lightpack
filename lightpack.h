@@ -26,14 +26,17 @@ extern int LightpackGamma;
 extern int LightpackBrightness;
 extern int LightpackSmooth;
 
+extern int LightpackProfileIndex;
+
 extern class cLibLightpack libLightpack;
 
 class cPluginLightpack : public cPlugin {
 private:
   // Add any member variables or functions you may need here.
 
-  void LoadConfig(void);
-  char * GetConfigValue(const char *Filename, const char *Setting);
+    void SetLightpackSettings(void);
+    void LoadConfig(void);
+    char * GetConfigValue(const char *Filename, const char *Setting);
 public:
   cPluginLightpack(void);
   virtual ~cPluginLightpack();
@@ -65,6 +68,10 @@ class cLibLightpack {
     double gamma;
     int brightness;
     int smooth;
+
+    cString Error;
+    cString LastError;
+
 public:
     cLibLightpack();
     ~cLibLightpack();
@@ -73,23 +80,28 @@ public:
     cString Port;
     cString ApiKey;
 
-    int Connect(void);
+    const char* GetLastError(void);
+
+    bool Connect(void);
     bool isConnected(void);
     void Disconnect(void);
 
-    int SetGamma(double Value);
-    int SetBrightness(int Value);
-    int SetSmooth(int Value);
+    bool SetGamma(double Value);
+    bool SetBrightness(int Value);
+    bool SetSmooth(int Value);
 
-    int SetStatus(bool Value);
+    bool SetStatus(bool Value);
  
     // 1 = Ambilight
     // 2 = Lamp
-    int SetMode(int Value);
+    bool SetMode(int Value);
+
+    bool SetProfile(cString Profile);
 
     double GetGamma(void);
     int GetBrightness(void);
     int GetSmooth(void);
+    
 
     // 0 = Error
     // 1 = On
@@ -101,9 +113,10 @@ public:
     // 2 = Lamp
     int GetMode(void);
 
-    int GetProfile(cString &Profile);
+    bool GetProfile(cString &Profile);
+    bool GetProfiles(cStringList &Profiles);
 
-    double GetFps(void);
+    bool GetFps(double &Fps);
 };
 
 #endif

@@ -13,16 +13,15 @@ int LightpackGamma = 50;
 int LightpackBrightness = 50;
 int LightpackSmooth = 127;
 
+int LightpackProfileIndex = 0;
+
 class cLibLightpack libLightpack;
 
 // --- myMenuSetup ------------------------------------------------------------
 class myMenuSetup : public cMenuSetupPage
 {
     private:
-        int menuGroupCount;
-        cStringList SwitchGroupKeyTexts;
-        cStringList SwitchWithOKTexts;
-        cStringList HideGroupsAtTexts;
+        cStringList Profiles;
 
     protected:
         virtual void Store()
@@ -30,6 +29,9 @@ class myMenuSetup : public cMenuSetupPage
             SetupStore("Gamma", LightpackGamma);
             SetupStore("Brightness", LightpackBrightness);
             SetupStore("Smooth", LightpackSmooth);
+            SetupStore("ProfileIndex", LightpackProfileIndex);
+            
+            SetLightpackSettings();
         }
     public:
         ~myMenuSetup()
@@ -41,7 +43,34 @@ class myMenuSetup : public cMenuSetupPage
             Add(new cMenuEditIntItem(tr("Gamma"), &LightpackGamma, 0, 100));
             Add(new cMenuEditIntItem(tr("Brightness"), &LightpackBrightness, 0, 100));
             Add(new cMenuEditIntItem(tr("Smooth"), &LightpackSmooth, 0, 255));
+            if( libLightpack.GetProfiles( Profiles ) ) {
+                if( LightpackProfileIndex < 0 || LightpackProfileIndex > Profiles.Size() )
+                    LightpackProfileIndex = 0;
+                Add(new cMenuEditStraItem(tr("Profile"), &LightpackProfileIndex, Profiles.Size(), &Profiles[0]));
+            }
+            else
+                Add(new cOsdItem(tr("can't get profiles list"), osUnknown, false));
         }
+        void SetLightpackSettings(void)
+        {
+            cStringList Profiles;
+            if( libLightpack.GetProfiles( Profiles ) ) {
+                if( LightpackProfileIndex < 0 || LightpackProfileIndex > Profiles.Size() )
+                    LightpackProfileIndex = 0;
+                if( !libLightpack.SetProfile( Profiles[LightpackProfileIndex] ) )
+                    syslog(LOG_ERR, "lightpack can't set profile to %s", Profiles[LightpackProfileIndex] );
+            }
+            else
+                syslog(LOG_ERR, "lightpack can't get profile list");
+            
+            if( !libLightpack.SetGamma( (double) LightpackGamma / 10.0 ) )
+                syslog(LOG_ERR, "lightpack can't set gamma");
+            if( !libLightpack.SetBrightness( LightpackBrightness ) )
+                syslog(LOG_ERR, "lightpack can't set brightness");
+            if( !libLightpack.SetSmooth( LightpackSmooth ) )
+                syslog(LOG_ERR, "lightpack can't set smooth");
+        }
+      
 };
 
 
@@ -72,14 +101,14 @@ bool cPluginLightpack::ProcessArgs(int argc, char *argv[])
 
 bool cPluginLightpack::Initialize(void)
 {
-  // Initialize any background activities the plugin shall perform.
-  LoadConfig();
-  return true;
+    // Initialize any background activities the plugin shall perform.
+    LoadConfig();
+    SetLightpackSettings();
+    return true;
 }
 
 bool cPluginLightpack::Start(void)
 {
-  // Start any background activities the plugin shall perform.
   return true;
 }
 
@@ -119,17 +148,26 @@ cOsdObject *cPluginLightpack::MainMenuAction(void)
 cMenuSetupPage *cPluginLightpack::SetupMenu(void)
 {
     return new myMenuSetup();
+    SetLightpackSettings();
 }
 
 bool cPluginLightpack::SetupParse(const char *Name, const char *Value)
 {
-    if(!strcmp("Gamma", Name))
+    if(!strcmp("Gamma", Name)) {
         LightpackGamma = atof(Value);
-    else if(!strcmp("Brightness", Name))
+        if( LightpackGamma < 0 || LightpackGamma > 100 )
+            LightpackGamma = 50;
+    } else if(!strcmp("Brightness", Name)) {
         LightpackBrightness = atoi(Value);
-    else if(!strcmp("Smooth", Name))
+        if( LightpackBrightness < 0 || LightpackBrightness > 100 )
+            LightpackBrightness = 50;
+    } else if(!strcmp("Smooth", Name)) {
         LightpackSmooth = atoi(Value);
-    else
+        if( LightpackSmooth < 0 || LightpackSmooth > 255 )
+            LightpackSmooth = 127;
+    } else if(!strcmp("ProfileIndex", Name)) {
+        LightpackProfileIndex = atoi(Value);
+    } else
         return false;
     return true;
 }
@@ -139,17 +177,108 @@ bool cPluginLightpack::Service(const char *Id, void *Data)
   // Handle custom service requests from other plugins
   return false;
 }
+static const char *SVDRPHelpText[] = {
+    "STATUS <ON/OFF>\n" "\040   set lightpack status\n\n"
+    "    available options are\n"
+    "    ON set lightpack on\n"
+    "    OFF set lightpack off\n",
+    "MODE <AMBILIGHT/LAMP>\n" "\040   set lightpack mode\n\n"
+    "    available options are\n"
+    "    AMBILIGHT set mode to ambilight\n"
+    "    LAMP set mode to lamp\n",
+    "GAMMA <value>\n" "\040   set gamma value\n\n"
+    "    The value must be between 0 - 100\n"
+    "    the value will be devided by 10, because prismatik handle values between 0.0 - 10.0\n",
+    "BRIGHT <value>\n" "\040   set brightness value\n\n"
+    "    The value must be between 0 - 100\n",
+    "SMOOTH <value>\n" "\040   set smooth value\n\n"
+    "    The value must be between 0 - 255\n",
+    "PROFILE <profile>\n" "\040   set the profile\n\n",
+    NULL
+};
 
 const char **cPluginLightpack::SVDRPHelpPages(void)
 {
-  // Return help text for SVDRP commands this plugin implements
-  return NULL;
+    return SVDRPHelpText;
 }
 
 cString cPluginLightpack::SVDRPCommand(const char *Command, const char *Option, int &ReplyCode)
 {
-  // Process SVDRP commands this plugin implements
-  return NULL;
+    if (!strcasecmp(Command, "STATUS")) {
+        if( !strcasecmp(Option, "ON")) {
+            if( libLightpack.SetStatus( true ) )
+                return "Successful set status on";
+            return cString::sprintf("Error set status on: %s", libLightpack.GetLastError() );
+        } else if( !strcasecmp(Option, "OFF")) {
+            if( libLightpack.SetStatus( false ) )
+                return "Successful set status off";
+            return cString::sprintf("Error set status off: %s", libLightpack.GetLastError() );
+        } else
+            return "Error unknown status command. Use ON/OFF";
+    } else if (!strcasecmp(Command, "MODE")) {
+        if( !strcasecmp(Option, "Ambilight")) {
+            if( libLightpack.SetMode( 1 ) )
+                return "Successful set mode to ambilight";
+            return cString::sprintf("Error set mode to ambilight: %s", libLightpack.GetLastError() );
+        } else if( !strcasecmp(Option, "Lamp")) {
+            if( libLightpack.SetMode( 2 ) )
+                return "Successful set mode to lamp";
+            return cString::sprintf("Error set mode to lamp: %s", libLightpack.GetLastError() );
+        } else
+            return "Error unknown mode command. Use AMBILIGHT/LAMP";
+    } else if (!strcasecmp(Command, "GAMMA")) {
+        int gamma = atoi(Option);
+        if( gamma >= 0 && gamma <= 100 ) {
+            if( libLightpack.SetGamma( (double) gamma / 10.0 ) )
+                return "Successful set gamma";
+            return cString::sprintf("Error set gamma: %s", libLightpack.GetLastError() );
+        }
+        
+        return "Error set gamma. Value not in range. The value must be between 0 - 100!";
+    } else if (!strcasecmp(Command, "BRIGHT")) {
+        int bright = atoi(Option);
+        if( bright >= 0 && bright <= 100 ) {
+            if( libLightpack.SetBrightness( bright) )
+                return "Successful set brightness";
+            return cString::sprintf("Error set brightness: %s", libLightpack.GetLastError() );
+        }
+        
+        return "Error set brightness. Value not in range. The value must be between 0 - 100!";
+    } else if (!strcasecmp(Command, "SMOOTH")) {
+        int smooth = atoi(Option);
+        if( smooth >= 0 && smooth <= 255 ) {
+            if( libLightpack.SetSmooth( smooth ) )
+                return "Successful set smooth";
+            return cString::sprintf("Error set smooth: %s", libLightpack.GetLastError() );
+        }
+        
+        return "Error set smooth. Value not in range. The value must be between 0 - 255!";
+    } else if (!strcasecmp(Command, "PROFILE")) {
+        if( libLightpack.SetProfile( Option ) )
+            return "Successful set profile";
+        return cString::sprintf("Error set profile: %s", libLightpack.GetLastError() );
+    }
+    return NULL;
+}
+
+void cPluginLightpack::SetLightpackSettings(void)
+{
+    cStringList Profiles;
+    if( libLightpack.GetProfiles( Profiles ) ) {
+        if( LightpackProfileIndex < 0 || LightpackProfileIndex > Profiles.Size() )
+            LightpackProfileIndex = 0;
+        if( !libLightpack.SetProfile( Profiles[LightpackProfileIndex] ) )
+            syslog(LOG_ERR, "lightpack can't set profile to %s", Profiles[LightpackProfileIndex] );
+    }
+    else
+        syslog(LOG_ERR, "lightpack can't get profile list");
+    
+    if( !libLightpack.SetGamma( (double) LightpackGamma / 10.0 ) )
+        syslog(LOG_ERR, "lightpack can't set gamma");
+    if( !libLightpack.SetBrightness( LightpackBrightness ) )
+        syslog(LOG_ERR, "lightpack can't set brightness");
+    if( !libLightpack.SetSmooth( LightpackSmooth ) )
+        syslog(LOG_ERR, "lightpack can't set smooth");
 }
 
 void cPluginLightpack::LoadConfig(void)
@@ -193,8 +322,6 @@ void cPluginLightpack::LoadConfig(void)
   libLightpack.Server = GetConfigValue(ConfigFile, "server");
   libLightpack.Port = GetConfigValue(ConfigFile, "port");
   libLightpack.ApiKey = GetConfigValue(ConfigFile, "apikey");
-  
-  syslog(LOG_ERR, "lightpack server=%s port=%s apikey=%s", *libLightpack.Server, *libLightpack.Port, *libLightpack.ApiKey);
 }
 
 char * cPluginLightpack::GetConfigValue(const char *Filename, const char *Setting)
@@ -228,6 +355,7 @@ char * cPluginLightpack::GetConfigValue(const char *Filename, const char *Settin
 
 cLibLightpack::cLibLightpack()
 {
+    LastError = "";
     is_connected = false;
     if( lightpack_init() == false )
         is_init = false;
@@ -238,29 +366,44 @@ cLibLightpack::~cLibLightpack()
 {
 }
 
+const char* cLibLightpack::GetLastError(void)
+{
+    //syslog(LOG_ERR, "lightpack LastError: %s", *LastError);
+    
+    Error = LastError;
+    LastError = "";
+    return *Error;
+}
+
 bool cLibLightpack::isConnected()
 {
     return is_connected;
 }
 
-int cLibLightpack::Connect(void)
+bool cLibLightpack::Connect(void)
 {
-    if( !is_init )
-        return 1;
-
-    int port = atoi( *Port );
-    if( lightpack_connect( *Server, port) == false )
-    {
-        return 2;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
     }
 
-    if( lightpack_login(*ApiKey) != 0 )
-    {
-        return 3;
+    int port = atoi( *Port );
+    if( lightpack_connect( *Server, port) == false ) {
+        LastError = "connection failed";
+        return false;
+    }
+
+    int ret = 0;
+    if( (ret = lightpack_login(*ApiKey)) != 0 ) {
+        if( ret == 1 )
+            LastError = "authentication failed, apikey wrong";
+        else
+            LastError = "authentication failed, socket error";
+        return false;
     }
     is_connected = true;
 
-    return 0;
+    return true;
 }
 
 void cLibLightpack::Disconnect(void)
@@ -270,76 +413,88 @@ void cLibLightpack::Disconnect(void)
         return;
 
     lightpack_disconnect();
+    LastError = "";
 }
 
-int cLibLightpack::SetGamma(double Value)
+bool cLibLightpack::SetGamma(double Value)
 {
-    if( !is_init )
-        return 1;
-    if( !is_connected )
-        return 2;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
 
-    int ret = 4;
     char *lightret = lightpack_setgamma(Value);
-    if( lightret != NULL )
-    {
-        syslog(LOG_ERR, "lightpack SetGamma=%s", lightret);
-        if( strstr(lightret, "ok") )
-        {
+    if( lightret != NULL ) {
+        if( strstr(lightret, "ok") ) {
             gamma = Value;
-            ret = 0;
-        } else
-            ret = 3;
-        free(lightret);
-    } else
-        ret = 4;
-    return ret;
+            free(lightret);
+            return true;
+        } else {
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            free(lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
 }
-int cLibLightpack::SetBrightness(int Value)
-{
-    if( !is_init )
-        return 1;
-    if( !is_connected )
-        return 2;
 
-    int ret = 4;
+bool cLibLightpack::SetBrightness(int Value)
+{
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
+
     char *lightret = lightpack_setbrightness(Value);
-    if( lightret != NULL )
-    {
-        syslog(LOG_ERR, "lightpack SetBrightness=%s", lightret);
+    if( lightret != NULL ) {
         if( strstr(lightret, "ok") )
         {
             brightness = Value;
-            ret = 0;
-        } else
-            ret = 3;
-        free(lightret);
-    } else
-        ret = 4;
-    return ret;
+            free(lightret);
+            return true;
+        } else {
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            free(lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
 }
-int cLibLightpack::SetSmooth(int Value)
-{
-    if( !is_init )
-        return 1;
-    if( !is_connected )
-        return 2;
 
-    int ret = 4;
+bool cLibLightpack::SetSmooth(int Value)
+{
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
     char *lightret = lightpack_setsmooth(Value);
-    if( lightret != NULL )
-    {
-        syslog(LOG_ERR, "lightpack SetSmooth=%s", lightret);
-        if( strstr(lightret, "ok") )
-        {
+    if( lightret != NULL ) {
+        if( strstr(lightret, "ok") ) { 
             smooth = Value;
-            ret = 0;
-        } else
-            ret = 3;
-        free(lightret);
-    } else
-        ret = 4;
-    return ret;
+            free(lightret);
+            return true;
+        } else {
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            free(lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
 }
 
 double cLibLightpack::GetGamma(void)
@@ -355,123 +510,218 @@ int cLibLightpack::GetSmooth(void)
     return smooth;
 }
 
-int cLibLightpack::SetStatus(bool Value)
+bool cLibLightpack::SetStatus(bool Value)
 {
-    if( !is_init )
-        return 1;
-    if( !is_connected )
-        return 2;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
 
-    int ret = 4;
     char *lightret = NULL;
     if( Value )
         lightret = lightpack_setstatus("on");
     else
         lightret = lightpack_setstatus("off");
 
-    if( lightret != NULL )
-    {
-        if( strstr(lightret, "ok") )
-        {
-            ret = 0;
-        } else
-            ret = 3;
-        free(lightret);
-    } else
-        ret = 4;
-    return ret;
+    if( lightret != NULL ) {
+        if( strstr(lightret, "ok") ) {
+            free(lightret);
+            return true;
+        } else {
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            free(lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
 }
 
-int cLibLightpack::SetMode(int Value)
+bool cLibLightpack::SetMode(int Value)
 {
-    if( !is_init )
-        return 1;
-    if( !is_connected )
-        return 2;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
 
-    int ret = 4;
     char *lightret = NULL;
     if( Value == 1)
         lightret = lightpack_setmode("ambilight");
     else if( Value == 2 )
         lightret = lightpack_setmode("moodlamp");
-    else
-        return ret;
+    else {
+        LastError = "wrong mode";
+        return false;
+    }
 
-    if( lightret != NULL )
-    {
-        if( strstr(lightret, "ok") )
-        {
-            ret = 0;
-        } else
-            ret = 3;
-        free(lightret);
-    } else
-        ret = 4;
-    return ret;
+    if( lightret != NULL ) {
+        if( strstr(lightret, "ok") ) {
+            free(lightret);
+            return true;
+        } else {
+            free(lightret);
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
+}
+
+bool cLibLightpack::SetProfile(cString Profile)
+{
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
+
+    char *lightret = NULL;
+    lightret = lightpack_setprofile(*Profile);
+    if( lightret != NULL ) {
+        if( strstr(lightret, "ok") ) {
+            free(lightret);
+            return true;
+        } else {
+            LastError = cString::sprintf("set failed return: %s", lightret);
+            free(lightret);
+            return false;
+        }
+    }
+    LastError = "set failed unknown error";
+    return false;
 }
 
 int cLibLightpack::GetStatus(void)
 {
+    if( !is_init ) {
+        LastError = "not initialized";
+        return 0;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return 0;
+    }
     int ret = 0;
     char *status = lightpack_getstatus();
-    if( status != NULL )
-    {
+    if( status != NULL ) {
         if( strstr(status, "on") )
             ret = 1;
-        else
+        else 
             ret = 2;
         free(status);
-    } else
+    } else {
+        LastError = "set failed unknown error";
         ret = 0;
+    }
 
     return ret; 
 }
 
 int cLibLightpack::GetMode(void)
 {
+    if( !is_init ) {
+        LastError = "not initialized";
+        return 0;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return 0;
+    }
     int ret = 0;
     char *mode = lightpack_getmode();
-    if( mode != NULL )
-    {
+    if( mode != NULL ) {
         if( strstr(mode, "ambilight") )
             ret = 1;
         else
             ret = 2;
         free(mode);
-    } else
+    } else {
+        LastError = "set failed unknown error";
         ret = 0;
+    }
 
     return ret; 
 }
 
-double cLibLightpack::GetFps(void)
+bool cLibLightpack::GetFps(double &Fps)
 {
-    double ret = -1;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
     char *fps = lightpack_getmode();
-    if( fps != NULL )
-    {
-        ret = atof(fps);
+    if( fps != NULL ) {
+        Fps = atof(fps);
         free(fps);
-    } else
-        ret = -1;
+        return true;
+    }
+    LastError = "set failed unknown error";
 
-    return ret; 
+    return false; 
 }
 
-int cLibLightpack::GetProfile(cString &Profile)
+bool cLibLightpack::GetProfile(cString &Profile)
 {
-    int ret = 0;
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
     char *profile = lightpack_getprofile();
-    if( profile != NULL )
-    {
+    if( profile != NULL ) {
         Profile = strdup(profile);
-        ret = 1;
         free(profile);
-    } else
-        ret = 0;
+        return true;
+    }
+    LastError = "set failed unknown error";
 
-    return ret; 
+    return false; 
+}
+
+bool cLibLightpack::GetProfiles(cStringList &Profiles)
+{
+    if( !is_init ) {
+        LastError = "not initialized";
+        return false;
+    }
+    if( !is_connected ) {
+        if( !Connect() )
+            return false;
+    }
+    char *profiles = lightpack_getprofiles();
+    if( profiles != NULL ) {
+        char *tok;
+        tok = strtok(profiles, ";");
+        while( tok != NULL )
+        {
+            Profiles.Append( strdup(tok) );
+            tok = strtok(NULL, ";");
+        }
+        free(profiles);
+        return true;
+    }
+    LastError = "set failed unknown error";
+
+    return false; 
 }
 
 VDRPLUGINCREATOR(cPluginLightpack); // Don't touch this!

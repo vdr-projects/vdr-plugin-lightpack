@@ -7,8 +7,14 @@
 class myOsdMenu : public cOsdMenu
 {
 private:
+    int Gamma, Brightness, Smooth;
+    int ProfileIndex;
+
     int LastGamma, LastBrightness, LastSmooth;
     int LastStatus, LastMode;
+    int LastProfileIndex;
+
+    cStringList Profiles;
 
     void MySetHelp(void);
 public:

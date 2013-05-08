@@ -3,27 +3,32 @@
 
 myOsdMenu::myOsdMenu() : cOsdMenu("Lightpack", 32)
 {
-    LastGamma = LightpackGamma;
-    LastBrightness = LightpackBrightness;
-    LastSmooth = LightpackSmooth;
-    
-    int ret = libLightpack.Connect();
-    if( ret == 0 ) {
+    Gamma = LastGamma = LightpackGamma;
+    Brightness = LastBrightness = LightpackBrightness;
+    Smooth = LastSmooth = LightpackSmooth;
+    ProfileIndex = LastProfileIndex = LightpackProfileIndex;
+
+    if( libLightpack.Connect() ) {
         Add(new cOsdItem(tr("Appearance"), osUnknown, false));
-        Add(new cMenuEditIntItem(tr("Gamma"), &LightpackGamma, 0, 100));
-        Add(new cMenuEditIntItem(tr("Brightness"), &LightpackBrightness));
-        Add(new cMenuEditIntItem(tr("Smooth"), &LightpackSmooth));
+        Add(new cMenuEditIntItem(tr("Gamma"), &Gamma, 0, 100));
+        Add(new cMenuEditIntItem(tr("Brightness"), &Brightness));
+        Add(new cMenuEditIntItem(tr("Smooth"), &Smooth));
         
+        if( libLightpack.GetProfiles( Profiles ) ) {
+            cString Profile;
+            libLightpack.GetProfile( Profile );
+            ProfileIndex = LastProfileIndex = Profiles.Find( *Profile );
+            if( ProfileIndex < 0 || ProfileIndex > Profiles.Size() )
+                ProfileIndex = 0;
+            Add(new cMenuEditStraItem(tr("Profile"), &ProfileIndex, Profiles.Size(), &Profiles[0]));
+        }
+        else
+            Add(new cOsdItem(tr("can't get profiles list"), osUnknown, false));
         MySetHelp();
-    } else if( ret == 1 ) {
+    } else {
         Add(new cOsdItem(tr("Lightpack not available"), osUnknown, false));
-        Add(new cOsdItem(tr("init error"), osUnknown, false));
-    } else if( ret == 2 ) {
-        Add(new cOsdItem(tr("Lightpack not available"), osUnknown, false));
-        Add(new cOsdItem(tr("connect error (Server/Port wrong? Prismatik running?)"), osUnknown, false));
-    } else if( ret == 3 ) {
-        Add(new cOsdItem(tr("Lightpack not available"), osUnknown, false));
-        Add(new cOsdItem(tr("login error (ApiKey wrong?)"), osUnknown, false));
+        cString Error = libLightpack.GetLastError();
+        Add(new cOsdItem(*Error, osUnknown, false));
     }
     
     Display();
@@ -39,16 +44,16 @@ void myOsdMenu::MySetHelp()
         else if( LastMode == 2 )
             SetHelp(tr("Stop"), tr("Ambilight"), NULL, NULL);
         else
-            Skins.Message(mtError, tr("can't get lightpack mode"));
+            Skins.Message(mtError, libLightpack.GetLastError() );
     } else if( LastStatus == 2 ) {
         if( LastMode == 1 )
             SetHelp(tr("Start"), tr("Lamp"), NULL, NULL);
         else if( LastMode == 2 )
             SetHelp(tr("Start"), tr("Ambilight"), NULL, NULL);
         else
-            Skins.Message(mtError, tr("can't get lightpack mode"));
+            Skins.Message(mtError, libLightpack.GetLastError() );
     } else
-        Skins.Message(mtError, tr("can't get lightpack status"));
+        Skins.Message(mtError, libLightpack.GetLastError() );
 }
 
 myOsdMenu::~myOsdMenu()
@@ -62,37 +67,49 @@ eOSState myOsdMenu::ProcessKey(eKeys Key)
     if( !libLightpack.isConnected() )
         return state;
 
-    int lightRet = 0;
-    
-    if( LastGamma != LightpackGamma )
+    if( LastGamma != Gamma )
     {
-        lightRet = libLightpack.SetGamma( (double) LightpackGamma / 10.0);
-        if( lightRet == 0 )
-            LastGamma = LightpackGamma;
+        
+        if( libLightpack.SetGamma( (double) Gamma / 10.0) )
+            LastGamma = Gamma;
         else {
-            LightpackGamma = LastGamma;
-            Skins.Message(mtError, tr("lightpack error"));
+            Gamma = LastGamma;
+            Skins.Message(mtError, libLightpack.GetLastError() );
         }
     }
-    if( LastBrightness != LightpackBrightness )
+    if( LastBrightness != Brightness )
     {
-        lightRet = libLightpack.SetBrightness(LightpackBrightness);
-        if( lightRet == 0 )
-            LastBrightness = LightpackBrightness;
+        if( libLightpack.SetBrightness(Brightness) )
+            LastBrightness = Brightness;
         else {
-            LightpackBrightness = LastBrightness;
-            Skins.Message(mtError, tr("lightpack error"));
+            Brightness = LastBrightness;
+            Skins.Message(mtError, libLightpack.GetLastError() );
         }
     }
-    if( LastSmooth != LightpackSmooth )
+    if( LastSmooth != Smooth )
     {
-        lightRet = libLightpack.SetSmooth(LightpackSmooth);
-        if( lightRet == 0 )
-            LastSmooth = LightpackSmooth;
+        if(  libLightpack.SetSmooth(Smooth) )
+            LastSmooth = Smooth;
         else {
-            LightpackSmooth = LastSmooth;
-            Skins.Message(mtError, tr("lightpack error"));
+            Smooth = LastSmooth;
+            Skins.Message(mtError, libLightpack.GetLastError() );
         }
+    }
+    if( LastProfileIndex != ProfileIndex )
+    {
+        cStringList Profiles;
+        if( libLightpack.GetProfiles( Profiles ) ) {
+            if( ProfileIndex < 0 || ProfileIndex > Profiles.Size() )
+                ProfileIndex = 0;
+            if( libLightpack.SetProfile( Profiles[ProfileIndex] ) )
+                LastProfileIndex = ProfileIndex;
+            else {
+                ProfileIndex = LastProfileIndex;
+                Skins.Message(mtError, libLightpack.GetLastError() );
+            }
+        }
+        else
+            Skins.Message(mtError, libLightpack.GetLastError() );
     }
 
     switch(Key)
@@ -100,26 +117,23 @@ eOSState myOsdMenu::ProcessKey(eKeys Key)
         case kRed:
             LastStatus = libLightpack.GetStatus();
             if( LastStatus == 1 ) {
-                lightRet = libLightpack.SetStatus( false );
-                if( lightRet > 0 )
-                    Skins.Message(mtError, tr("lightpack error"));
+               
+                if( !libLightpack.SetStatus( false ) )
+                    Skins.Message(mtError, libLightpack.GetLastError() );
             } else if( LastStatus == 2 ) {
-                lightRet = libLightpack.SetStatus( true );
-                if( lightRet > 0 )
-                    Skins.Message(mtError, tr("lightpack error"));
+                if( !libLightpack.SetStatus( true ) )
+                    Skins.Message(mtError, libLightpack.GetLastError() );
             }
             MySetHelp();
             break;
          case kGreen:
             LastMode = libLightpack.GetMode();
             if( LastMode == 1 ) {
-                lightRet = libLightpack.SetMode( 2 );
-                if( lightRet > 0 )
-                    Skins.Message(mtError, tr("lightpack error"));
+                if( !libLightpack.SetMode( 2 ) )
+                    Skins.Message(mtError, libLightpack.GetLastError() );
             } else if( LastMode == 2 ) {
-                lightRet = libLightpack.SetMode( 1 );
-                if( lightRet > 0 )
-                    Skins.Message(mtError, tr("lightpack error"));
+                if( !libLightpack.SetMode( 1 ) )
+                    Skins.Message(mtError, libLightpack.GetLastError() );
             }
             MySetHelp();
             break;
@@ -130,6 +144,5 @@ eOSState myOsdMenu::ProcessKey(eKeys Key)
         default:
             break;
     }
-    //syslog(LOG_ERR, "lightpack Gamma=%d Brightness=%d Smooth=%d", LightpackGamma, LightpackBrightness, LightpackSmooth);
     return state;
 }

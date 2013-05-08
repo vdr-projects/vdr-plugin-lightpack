@@ -125,7 +125,16 @@ int main(void)
     if( profiles != NULL )
     {
         printf("\tgetprofiles: %s\n", profiles);
+        printf("\tstart split\n");
+        char *tok;
+        tok = strtok(profiles, ";");
+        while( tok != NULL )
+        {
+            printf("\tprofile: %s\n", tok);
+            tok = strtok(NULL, ";");
+        }
         free(profiles);
+        printf("\tend split\n");
     } else
         printf("\tgetprofiles error\n");
 
